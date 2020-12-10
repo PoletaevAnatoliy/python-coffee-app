@@ -21,14 +21,15 @@ class BreakagesDatabase:
         with sqlite3.connect(self._db) as connection:
             cursor = connection.cursor()
             result = cursor.execute("""SELECT id, place, time, description
-                                       FROM breakages WHERE engineer_id IS NULL;""").fetchall()
+                                       FROM breakages WHERE engineer_id IS NULL
+                                       AND is_active=TRUE;""").fetchall()
         return result
 
     def add_new_breakage(self, place, time, description) -> bool:
         with sqlite3.connect(self._db) as connection:
             cursor = connection.cursor()
             cursor.execute("""INSERT INTO breakages (place, time, description, engineer_id, is_active)
-                              VALUES (?, ?, ?, NULL, FALSE)""", (place, time, description))
+                              VALUES (?, ?, ?, NULL, TRUE)""", (place, time, description))
             connection.commit()
 
     def take_breakage(self, breakage_id, engineer_id) -> bool:
@@ -40,7 +41,7 @@ class BreakagesDatabase:
     def report_breakage_fixed(self, breakage_id):
         with sqlite3.connect(self._db) as connection:
             cursor = connection.cursor()
-            cursor.execute("""UPDATE breakages SET is_active=TRUE WHERE id=?""", (breakage_id,))
+            cursor.execute("""UPDATE breakages SET is_active=FALSE WHERE id=?""", (breakage_id,))
             connection.commit()
 
     def _breakage_is_free(self, breakage_id):
@@ -55,3 +56,11 @@ class BreakagesDatabase:
             cursor = connection.cursor()
             cursor.execute("""UPDATE breakages SET engineer_id=? WHERE id=?""", (engineer_id, breakage_id))
             connection.commit()
+
+    def get_engineer_breakages(self, engineer_id):
+        with sqlite3.connect(self._db) as connection:
+            cursor = connection.cursor()
+            result = cursor.execute("""SELECT id, place, time, description
+                                       FROM breakages WHERE engineer_id=? 
+                                       AND is_active=TRUE;""", (engineer_id,)).fetchall()
+        return result

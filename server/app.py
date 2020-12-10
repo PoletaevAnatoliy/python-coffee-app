@@ -15,6 +15,13 @@ def get_free_breakages():
     return jsonify(result)
 
 
+@app.route('/engineer/<int:engineer_id>/breakages', methods=['GET'])
+def get_breakages_for_engineer(engineer_id):
+    result = [{'id': id_, 'place': place, 'time': time, 'description': description}
+              for id_, place, time, description in db.get_engineer_breakages(engineer_id)]
+    return jsonify(result)
+
+
 @app.route('/breakages', methods=['POST'])
 def add_new_breakage():
     if not request.is_json:
