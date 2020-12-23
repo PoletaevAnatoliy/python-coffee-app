@@ -1,10 +1,11 @@
 import sys
 from datetime import datetime
+from hashlib import sha256
 
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QTabWidget, QListWidget, \
-    QListWidgetItem, QDialog, QFormLayout, QLineEdit, QTextEdit, QDateTimeEdit
+    QListWidgetItem, QDialog, QFormLayout, QLineEdit, QTextEdit, QDateTimeEdit, QErrorMessage
 
-from server_connector import ServerConnector
+from server_connector import ServerConnector, SecurityError
 
 
 class AuthorizationDialog(QDialog):
@@ -21,6 +22,10 @@ class AuthorizationDialog(QDialog):
         self.id_field = QLineEdit()
         self.id_field.setPlaceholderText("ID")
         self.layout().addWidget(self.id_field)
+
+        self.password_field = QLineEdit()
+        self.password_field.setPlaceholderText("Password")
+        self.layout().addWidget(self.password_field)
 
         accept_button = QPushButton("Ok")
         accept_button.clicked.connect(self.confirm)
@@ -39,7 +44,7 @@ class AuthorizationDialog(QDialog):
         self.close()
 
 
-class BreakagesPanel(QTabWidget):
+class DataPanel(QTabWidget):
 
     def __init__(self, server: ServerConnector, message_func):
         super().__init__()
@@ -49,21 +54,45 @@ class BreakagesPanel(QTabWidget):
 
         self.free_breakages_widget = QListWidget()
         self.free_breakages_widget.itemDoubleClicked.connect(self.openBreakageWindow)
-        self.addTab(self.free_breakages_widget, "Свободные поломки")
 
         self.my_breakages_widget = QListWidget()
         self.my_breakages_widget.itemDoubleClicked.connect(self.openBreakageWindow)
-        self.addTab(self.my_breakages_widget, "Мои поломки")
+
+        self.breakages_in_work_widget = QListWidget()
+        self.breakages_in_work_widget.itemDoubleClicked.connect(self.openBreakageWindow)
 
         self.update_data()
+
+    def setEngineerMode(self):
+        self.clear()
+        self.addTab(self.free_breakages_widget, "Свободные поломки")
+        self.addTab(self.my_breakages_widget, "Мои поломки")
+
+    def setOperatorMode(self):
+        self.clear()
+        self.addTab(self.free_breakages_widget, "Свободные поломки")
+        self.addTab(self.breakages_in_work_widget, "Поломки в работе")
+
+    def setAdministratorMode(self):
+        pass
 
     def update_data(self):
         self.free_breakages_widget.clear()
         self.my_breakages_widget.clear()
+        self.breakages_in_work_widget.clear()
         for breakage in self.server.get_free_breakages():
             self.free_breakages_widget.addItem(BreakagesListItem(breakage))
         for breakage in self.server.get_taken_breakages():
             self.my_breakages_widget.addItem(BreakagesListItem(breakage))
+        for breakage in self.server.get_breakages_in_work():
+            self.breakages_in_work_widget.addItem(BreakagesListItem(breakage))
+
+        if self.server.user_role == 'ADMIN':
+            self.setAdministratorMode()
+        elif self.server.user_role == 'ENGINEER':
+            self.setEngineerMode()
+        elif self.server.user_role == 'OPERATOR':
+            self.setOperatorMode()
 
     def openBreakageWindow(self):
         window = BreakageWindow(self.sender().selectedItems()[0].data, self.server, self.message_func)
@@ -166,16 +195,17 @@ class MainWindow(QWidget):
         super().__init__()
 
         self.server = server
+        self.server.add_view(self)
 
         self.setWindowTitle("Программа контроля поломок")
         self.setGeometry(700, 200, 500, 600)
         self.setLayout(QVBoxLayout())
 
-        add_breakage_button = QPushButton("Добавить поломку")
-        add_breakage_button.clicked.connect(self.addBreakage)
-        self.layout().addWidget(add_breakage_button)
+        self.add_breakage_button = QPushButton("Добавить поломку")
+        self.add_breakage_button.clicked.connect(self.addBreakage)
+        self.layout().addWidget(self.add_breakage_button)
 
-        self.breakages_panel = BreakagesPanel(self.server, self.showStatus)
+        self.breakages_panel = DataPanel(self.server, self.showStatus)
         self.server.add_view(self.breakages_panel)
         self.layout().addWidget(self.breakages_panel)
 
@@ -186,7 +216,18 @@ class MainWindow(QWidget):
         self.status_bar = QLabel()
         self.layout().addWidget(self.status_bar)
 
+        self.server.update_data()
+
         self.showStatus("Готов к работе")
+
+    def setEngineerMode(self):
+        self.add_breakage_button.setVisible(False)
+
+    def setOperatorMode(self):
+        self.add_breakage_button.setVisible(True)
+
+    def setAdministratorMode(self):
+        pass
 
     def showStatus(self, status_message):
         self.status_bar.setText(status_message)
@@ -204,13 +245,30 @@ class MainWindow(QWidget):
         self.breakages_panel.update_data()
         self.showStatus("Обновлено")
 
+    def update_data(self):
+        if self.server.user_role == 'ADMIN':
+            self.setAdministratorMode()
+        elif self.server.user_role == 'ENGINEER':
+            self.setEngineerMode()
+        elif self.server.user_role == 'OPERATOR':
+            self.setOperatorMode()
+
 
 def main():
     app = QApplication(sys.argv)
+    connector = ServerConnector("http://localhost", 5000)
     auth_dialog = AuthorizationDialog()
     auth_dialog.exec()
     if auth_dialog.is_accepted:
-        connector = ServerConnector("http://localhost", 5000, int(auth_dialog.user_id))
+        try:
+            connector.set_user(auth_dialog.user_id,
+                               sha256(auth_dialog.password_field.text().encode('utf-8')).hexdigest())
+        except SecurityError:
+            error_box = QErrorMessage()
+            error_box.showMessage("Check your credentials and try again!")
+            error_box.setWindowTitle("Security error")
+            error_box.exec()
+            sys.exit(1)
         window = MainWindow(connector)
         window.show()
     sys.exit(app.exec())

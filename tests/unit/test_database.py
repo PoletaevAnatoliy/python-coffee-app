@@ -2,7 +2,7 @@ import os
 import unittest
 from datetime import datetime
 
-from server.database import BreakagesDatabase
+from server.breakages_database import BreakagesDatabase
 
 
 class DatabaseTest(unittest.TestCase):
